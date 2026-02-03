@@ -1,0 +1,10 @@
+.gradle/
+build/
+bin/
+.idea/
+*.iml
+local.properties
+server-local.properties
+*-firebase-adminsdk-*.json
+.env
+.kotlin/
