@@ -1,0 +1,21 @@
+# Server config for local development
+# Copy to server-local.properties and fill in your values
+
+PORT=8080
+DEV_BYPASS_AUTH=true
+
+# Database (Neon/Postgres connection string)
+# Example: postgresql://user:password@host.neon.tech/dbname?sslmode=require
+DATABASE_URL=postgresql://user:password@localhost:5432/powerlifting
+
+# Optional: override user/password separately
+# DB_USER=user
+# DB_PASSWORD=password
+# DB_POOL_SIZE=10
+
+# Firebase (optional for local dev with DEV_BYPASS_AUTH=true)
+# FIREBASE_PROJECT_ID=your-project-id
+# FIREBASE_SERVICE_ACCOUNT_PATH=path/to/service-account.json
+
+# CORS
+CORS_ALLOW_ALL=true
