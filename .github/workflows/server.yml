@@ -17,4 +17,4 @@ jobs:
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: '17' }
       - uses: gradle/actions/setup-gradle@v3
-      - run: ./gradlew detekt test build
+      - run: ./gradlew test build
