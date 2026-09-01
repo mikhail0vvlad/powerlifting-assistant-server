@@ -32,14 +32,10 @@
 
 Проект Gradle.
 
-> В репозитории нет Gradle Wrapper (gradlew + gradle-wrapper.jar), потому что в окружении генерации нет Gradle.
-> В IntelliJ IDEA можно открыть проект как Gradle и сгенерировать wrapper.
+Требуется **JDK 21** (проект использует `jvmToolchain(21)`).
 
-Команда (если у вас установлен Gradle локально):
 ```bash
 ./gradlew run
-# или
-gradle run
 ```
 
 ### 3) Проверка
