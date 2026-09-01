@@ -1,5 +1,7 @@
 # Powerlifting Assistant — Server (Ktor + PostgreSQL + Firebase Auth)
 
+[![server](https://github.com/mikhail0vvlad/powerlifting-assistant-server/actions/workflows/server.yml/badge.svg)](https://github.com/mikhail0vvlad/powerlifting-assistant-server/actions/workflows/server.yml)
+
 Это серверная часть мобильного приложения «Ассистент пауэрлифтера».
 
 ## Стек
