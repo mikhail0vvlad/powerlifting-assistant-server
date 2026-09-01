@@ -15,6 +15,7 @@ data class FirebaseUserPrincipal(
     val uid: String,
     val email: String? = null,
     val name: String? = null,
+    val emailVerified: Boolean = false,
 )
 
 class FirebaseTokenVerifier(
@@ -25,7 +26,8 @@ class FirebaseTokenVerifier(
         return FirebaseUserPrincipal(
             uid = decoded.uid,
             email = decoded.email,
-            name = decoded.name
+            name = decoded.name,
+            emailVerified = decoded.isEmailVerified
         )
     }
 

@@ -51,8 +51,7 @@ fun Route.registerNutritionRoutes(
 
         delete("/entries/{id}") {
             val u = call.userRow()
-            val idStr = call.parameters["id"] ?: throw IllegalArgumentException("Missing id")
-            val id = UUID.fromString(idStr)
+            val id = parseUuidOrBadRequest(call.parameters["id"], "entry id")
 
             val ok = deleteNutritionEntry(u.id, id)
             if (ok) call.respond(HttpStatusCode.NoContent) else call.respond(HttpStatusCode.NotFound)

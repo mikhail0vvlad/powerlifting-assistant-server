@@ -1,5 +1,6 @@
 package com.powerlifting.server.domain.usecase.program
 
+import com.powerlifting.server.domain.error.NotFoundException
 import com.powerlifting.server.domain.model.NewProgramExercise
 import com.powerlifting.server.domain.model.ProgramWorkout
 import com.powerlifting.server.domain.model.WorkoutStatus
@@ -21,7 +22,7 @@ class RescheduleWorkoutUseCase(
 ) {
     suspend operator fun invoke(userId: UUID, workoutId: UUID, newDate: LocalDate): ProgramWorkout {
         val (programId, source) = programRepository.findWorkoutForUser(userId, workoutId)
-            ?: throw IllegalArgumentException("Workout not found")
+            ?: throw NotFoundException("Workout not found")
 
         val current = WorkoutStatus.parse(source.status)
         require(current == WorkoutStatus.PLANNED || current == WorkoutStatus.MISSED) {
