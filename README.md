@@ -64,3 +64,7 @@ gradle run
 
 ## Миграции
 Flyway автоматически применяет миграции из `src/main/resources/db/migration`.
+
+## Лицензия
+
+MIT — см. [LICENSE](LICENSE).
