@@ -12,6 +12,8 @@
 - Flyway migrations
 - Firebase Admin SDK (проверка Firebase ID Token)
 
+> Клиент: **[powerlifting-assistant-android](https://github.com/mikhail0vvlad/powerlifting-assistant-android)** — Kotlin + Jetpack Compose.
+
 ## Быстрый старт
 
 ### 1) Переменные окружения
