@@ -8,8 +8,12 @@ data class AppConfig(
     val port: Int,
     val db: DbConfig,
     val firebase: FirebaseConfig,
-    val corsAllowAll: Boolean = true,
+    /** "production" (default) or "development". Gates dangerous dev-only switches. */
+    val appEnv: String = "production",
+    val corsAllowAll: Boolean = false,
     val devBypassAuth: Boolean = false,
+    /** Reject Firebase tokens whose email_verified claim is false. */
+    val requireEmailVerified: Boolean = true,
 )
 
 data class DbConfig(
@@ -48,6 +52,7 @@ object ConfigLoader {
     fun loadFromEnv(): AppConfig {
         val port = getProp("PORT")?.toIntOrNull() ?: 8080
 
+        val appEnv = getProp("APP_ENV", "production")?.lowercase()?.takeIf { it.isNotBlank() } ?: "production"
         val devBypassAuth = getProp("DEV_BYPASS_AUTH", "false")?.equals("true", ignoreCase = true) ?: false
 
         val dbUrlRaw = getProp("DATABASE_URL")
@@ -73,8 +78,11 @@ object ConfigLoader {
             port = port,
             db = db,
             firebase = firebase,
-            corsAllowAll = getProp("CORS_ALLOW_ALL", "true")?.equals("true", ignoreCase = true) ?: true,
+            appEnv = appEnv,
+            corsAllowAll = getProp("CORS_ALLOW_ALL", "false")?.equals("true", ignoreCase = true) ?: false,
             devBypassAuth = devBypassAuth,
+            requireEmailVerified = getProp("REQUIRE_EMAIL_VERIFIED", "true")
+                ?.equals("true", ignoreCase = true) ?: true,
         )
     }
 
