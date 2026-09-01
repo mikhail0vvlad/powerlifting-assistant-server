@@ -7,6 +7,8 @@ import com.powerlifting.server.config.ConfigLoader
 import com.powerlifting.server.data.cache.CaffeineCache
 import com.powerlifting.server.domain.error.EmailNotVerifiedException
 import com.powerlifting.server.domain.error.NotFoundException
+import com.powerlifting.server.domain.error.UnauthorizedException
+import com.powerlifting.server.dto.ApiErrorResponse
 import com.powerlifting.server.data.repository.AchievementsRepositoryImpl
 import com.powerlifting.server.data.repository.NutritionRepositoryImpl
 import com.powerlifting.server.data.repository.ProfileRepositoryImpl
@@ -107,34 +109,13 @@ fun Application.module(config: AppConfig = ConfigLoader.loadFromEnv()) {
         )
     }
 
-    install(StatusPages) {
-        exception<NotFoundException> { call, cause ->
-            // Use a generic body — do NOT confirm whether the resource doesn't
-            // exist at all vs. belongs to another user. cause.message is for
-            // logging only.
-            call.application.log.debug("Not found: {}", cause.message)
-            call.respond(HttpStatusCode.NotFound, mapOf("error" to "not_found"))
-        }
-        exception<EmailNotVerifiedException> { call, _ ->
-            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "email_not_verified"))
-        }
-        exception<IllegalArgumentException> { call, cause ->
-            call.respond(HttpStatusCode.BadRequest, mapOf("error" to "bad_request", "details" to (cause.message ?: "")))
-        }
-        exception<Throwable> { call, cause ->
-            call.application.log.error("Unhandled error", cause)
-            // Do NOT echo cause.message in production — it leaks internal state
-            // (SQL errors, stack messages, JDBC paths) to clients.
-            val details = if (config.appEnv == "development") (cause.message ?: "") else null
-            call.respond(HttpStatusCode.InternalServerError, mapOf("error" to "internal_error", "details" to details))
-        }
-    }
+    installErrorHandling(config.appEnv)
 
     // Reject oversized bodies BEFORE ContentNegotiation tries to deserialize them.
     intercept(ApplicationCallPipeline.Plugins) {
         val len = call.request.contentLength() ?: 0L
         if (len > MAX_BODY_BYTES) {
-            call.respond(HttpStatusCode.PayloadTooLarge, mapOf("error" to "payload_too_large"))
+            call.respond(HttpStatusCode.PayloadTooLarge, ApiErrorResponse("payload_too_large"))
             finish()
         }
     }
@@ -259,6 +240,37 @@ fun Application.module(config: AppConfig = ConfigLoader.loadFromEnv()) {
     }
 }
 
+fun Application.installErrorHandling(appEnv: String) {
+    install(StatusPages) {
+        exception<UnauthorizedException> { call, cause ->
+            // Причина — только в лог: клиенту незачем знать, отсутствовал заголовок
+            // или Firebase отверг подпись.
+            call.application.log.debug("Unauthorized: {}", cause.message)
+            call.respond(HttpStatusCode.Unauthorized, ApiErrorResponse(error = "unauthorized"))
+        }
+        exception<NotFoundException> { call, cause ->
+            // Use a generic body — do NOT confirm whether the resource doesn't
+            // exist at all vs. belongs to another user. cause.message is for
+            // logging only.
+            call.application.log.debug("Not found: {}", cause.message)
+            call.respond(HttpStatusCode.NotFound, ApiErrorResponse(error = "not_found"))
+        }
+        exception<EmailNotVerifiedException> { call, _ ->
+            call.respond(HttpStatusCode.Forbidden, ApiErrorResponse(error = "email_not_verified"))
+        }
+        exception<IllegalArgumentException> { call, cause ->
+            call.respond(HttpStatusCode.BadRequest, ApiErrorResponse("bad_request", cause.message))
+        }
+        exception<Throwable> { call, cause ->
+            call.application.log.error("Unhandled error", cause)
+            // Do NOT echo cause.message in production — it leaks internal state
+            // (SQL errors, stack messages, JDBC paths) to clients.
+            val details = if (appEnv == "development") cause.message else null
+            call.respond(HttpStatusCode.InternalServerError, ApiErrorResponse("internal_error", details))
+        }
+    }
+}
+
 internal fun ApplicationCall.principal(): FirebaseUserPrincipal = attributes[PrincipalKey]
 internal fun ApplicationCall.userRow(): User = attributes[UserKey]
 
@@ -275,14 +287,19 @@ private fun ApplicationCall.authenticate(
     }
 
     val header = request.headers[HttpHeaders.Authorization]
-        ?: throw IllegalArgumentException("Missing Authorization header")
+        ?: throw UnauthorizedException("Missing Authorization header")
 
     val parts = header.trim().split(" ", limit = 2)
     if (parts.size != 2 || !parts[0].equals("Bearer", ignoreCase = true)) {
-        throw IllegalArgumentException("Invalid Authorization header (expected: Bearer <token>)")
+        throw UnauthorizedException("Invalid Authorization header (expected: Bearer <token>)")
     }
 
-    val principal = requireNotNull(tokenVerifier).verify(parts[1])
+    val principal = try {
+        requireNotNull(tokenVerifier).verify(parts[1])
+    } catch (e: Exception) {
+        // FirebaseAuthException (истёкший/подделанный токен) — это 401, а не 500.
+        throw UnauthorizedException("Token verification failed: ${e.message}")
+    }
     if (config.requireEmailVerified && !principal.emailVerified) {
         throw EmailNotVerifiedException()
     }
