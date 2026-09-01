@@ -13,3 +13,6 @@ class NotFoundException(message: String) : RuntimeException(message)
  * their email is not yet verified. Mapped to HTTP 403.
  */
 class EmailNotVerifiedException(message: String = "Email not verified") : RuntimeException(message)
+
+/** Нет заголовка Authorization, он не Bearer, или Firebase отверг токен. */
+class UnauthorizedException(message: String) : RuntimeException(message)
