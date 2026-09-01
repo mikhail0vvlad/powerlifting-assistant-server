@@ -2,7 +2,15 @@
 # Copy to server-local.properties and fill in your values
 
 PORT=8080
-DEV_BYPASS_AUTH=true
+
+# Environment gate. MUST be "production" for any deployed instance.
+# DEV_BYPASS_AUTH below is only honored when APP_ENV=development;
+# otherwise the server refuses to start with the bypass enabled.
+APP_ENV=development
+
+# Dangerous: skips Firebase verification and trusts the X-DEV-UID header.
+# Keep false unless you are actively running the server on your own laptop.
+DEV_BYPASS_AUTH=false
 
 # Database (Neon/Postgres connection string)
 # Example: postgresql://user:password@host.neon.tech/dbname?sslmode=require
@@ -13,9 +21,9 @@ DATABASE_URL=postgresql://user:password@localhost:5432/powerlifting
 # DB_PASSWORD=password
 # DB_POOL_SIZE=10
 
-# Firebase (optional for local dev with DEV_BYPASS_AUTH=true)
+# Firebase (required unless DEV_BYPASS_AUTH=true in APP_ENV=development)
 # FIREBASE_PROJECT_ID=your-project-id
 # FIREBASE_SERVICE_ACCOUNT_PATH=path/to/service-account.json
 
-# CORS
-CORS_ALLOW_ALL=true
+# CORS — keep false unless you have a browser client. Mobile-only API does not need it.
+CORS_ALLOW_ALL=false

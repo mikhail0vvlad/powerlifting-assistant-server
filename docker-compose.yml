@@ -26,10 +26,11 @@ services:
       - "127.0.0.1:8080:8080"
     environment:
       PORT: 8080
+      APP_ENV: "production"
       DATABASE_URL: ${DATABASE_URL}
       FIREBASE_SERVICE_ACCOUNT_PATH: /run/secrets/firebase.json
       FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
-      CORS_ALLOW_ALL: ${CORS_ALLOW_ALL:-false}
+      CORS_ALLOW_ALL: "false"
       DEV_BYPASS_AUTH: "false"
       JAVA_OPTS: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError"
     volumes:

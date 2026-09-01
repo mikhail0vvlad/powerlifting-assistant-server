@@ -5,6 +5,8 @@ import com.powerlifting.server.auth.FirebaseUserPrincipal
 import com.powerlifting.server.config.AppConfig
 import com.powerlifting.server.config.ConfigLoader
 import com.powerlifting.server.data.cache.CaffeineCache
+import com.powerlifting.server.domain.error.EmailNotVerifiedException
+import com.powerlifting.server.domain.error.NotFoundException
 import com.powerlifting.server.data.repository.AchievementsRepositoryImpl
 import com.powerlifting.server.data.repository.NutritionRepositoryImpl
 import com.powerlifting.server.data.repository.ProfileRepositoryImpl
@@ -51,21 +53,47 @@ import io.ktor.server.application.*
 import io.ktor.server.plugins.callloging.*
 import io.ktor.server.plugins.contentnegotiation.*
 import io.ktor.server.plugins.cors.routing.*
+import io.ktor.server.plugins.defaultheaders.*
+import io.ktor.server.plugins.ratelimit.*
 import io.ktor.server.plugins.statuspages.*
+import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.util.AttributeKey
 import java.time.Duration
 import java.util.UUID
+import kotlin.time.Duration.Companion.minutes
 import kotlinx.serialization.json.Json
 import org.slf4j.event.Level
 
 private val PrincipalKey = AttributeKey<FirebaseUserPrincipal>("firebasePrincipal")
 private val UserKey = AttributeKey<User>("domainUser")
 
+// Per-request body size cap. JSON requests in this app are small — 64 KiB leaves
+// plenty of headroom for the bulkiest AddWorkoutSets payloads while killing
+// 1 MB+ junk bodies before the JSON parser tries to allocate them.
+private const val MAX_BODY_BYTES = 64L * 1024L
+
 fun Application.module(config: AppConfig = ConfigLoader.loadFromEnv()) {
+    // Refuse to start in production with the dev auth bypass enabled. The bypass
+    // accepts any user via the X-DEV-UID header without Firebase verification,
+    // so a misconfigured prod env would let anyone impersonate any account.
+    if (config.devBypassAuth && config.appEnv != "development") {
+        error(
+            "DEV_BYPASS_AUTH=true is only allowed when APP_ENV=development (current APP_ENV='${config.appEnv}'). " +
+                "Set APP_ENV=development for local dev, or DEV_BYPASS_AUTH=false everywhere else."
+        )
+    }
+
     install(CallLogging) {
         level = Level.INFO
+        filter { call -> !call.request.path().startsWith("/health") }
+    }
+
+    install(DefaultHeaders) {
+        header("X-Content-Type-Options", "nosniff")
+        header("Referrer-Policy", "no-referrer")
+        header("X-Frame-Options", "DENY")
     }
 
     install(ContentNegotiation) {
@@ -80,21 +108,45 @@ fun Application.module(config: AppConfig = ConfigLoader.loadFromEnv()) {
     }
 
     install(StatusPages) {
+        exception<NotFoundException> { call, cause ->
+            // Use a generic body — do NOT confirm whether the resource doesn't
+            // exist at all vs. belongs to another user. cause.message is for
+            // logging only.
+            call.application.log.debug("Not found: {}", cause.message)
+            call.respond(HttpStatusCode.NotFound, mapOf("error" to "not_found"))
+        }
+        exception<EmailNotVerifiedException> { call, _ ->
+            call.respond(HttpStatusCode.Forbidden, mapOf("error" to "email_not_verified"))
+        }
         exception<IllegalArgumentException> { call, cause ->
             call.respond(HttpStatusCode.BadRequest, mapOf("error" to "bad_request", "details" to (cause.message ?: "")))
         }
         exception<Throwable> { call, cause ->
             call.application.log.error("Unhandled error", cause)
-            call.respond(HttpStatusCode.InternalServerError, mapOf("error" to "internal_error", "details" to (cause.message ?: "")))
+            // Do NOT echo cause.message in production — it leaks internal state
+            // (SQL errors, stack messages, JDBC paths) to clients.
+            val details = if (config.appEnv == "development") (cause.message ?: "") else null
+            call.respond(HttpStatusCode.InternalServerError, mapOf("error" to "internal_error", "details" to details))
+        }
+    }
+
+    // Reject oversized bodies BEFORE ContentNegotiation tries to deserialize them.
+    intercept(ApplicationCallPipeline.Plugins) {
+        val len = call.request.contentLength() ?: 0L
+        if (len > MAX_BODY_BYTES) {
+            call.respond(HttpStatusCode.PayloadTooLarge, mapOf("error" to "payload_too_large"))
+            finish()
         }
     }
 
     if (config.corsAllowAll) {
+        // Opt-in only. Mobile-only API does not need CORS at all; this branch
+        // exists for the occasional browser-based tooling during development.
         install(CORS) {
             anyHost()
             allowHeader(HttpHeaders.Authorization)
             allowHeader(HttpHeaders.ContentType)
-            allowHeader("X-DEV-UID")
+            if (config.devBypassAuth) allowHeader("X-DEV-UID")
             allowMethod(HttpMethod.Get)
             allowMethod(HttpMethod.Post)
             allowMethod(HttpMethod.Put)
@@ -102,10 +154,28 @@ fun Application.module(config: AppConfig = ConfigLoader.loadFromEnv()) {
         }
     }
 
-    DatabaseFactory.init(config.db)
+    // Per-user rate limit on every authenticated API call. The key is the
+    // domain user id set by the auth interceptor below; falls back to the
+    // remote host on the rare paths that bypass auth (none today, but defensive).
+    install(RateLimit) {
+        register(RateLimitName("perUser")) {
+            rateLimiter(limit = 120, refillPeriod = 1.minutes)
+            requestKey { call ->
+                call.attributes.getOrNull(UserKey)?.id?.toString() ?: call.request.local.remoteHost
+            }
+        }
+        register(RateLimitName("expensive")) {
+            rateLimiter(limit = 5, refillPeriod = 1.minutes)
+            requestKey { call ->
+                call.attributes.getOrNull(UserKey)?.id?.toString() ?: call.request.local.remoteHost
+            }
+        }
+    }
+
+    DatabaseFactory.init(config.db, config.appEnv)
 
     val tokenVerifier: FirebaseTokenVerifier? = if (config.devBypassAuth) {
-        log.warn("DEV_BYPASS_AUTH enabled: Firebase verification is skipped")
+        log.warn("DEV_BYPASS_AUTH enabled (APP_ENV=${config.appEnv}): Firebase verification is skipped")
         null
     } else {
         FirebaseTokenVerifier.init(config.firebase)
@@ -162,24 +232,28 @@ fun Application.module(config: AppConfig = ConfigLoader.loadFromEnv()) {
 
         route("/api/v1") {
             routeAuth(tokenVerifier, config, userRepository) {
-                registerMeRoutes()
-                registerProfileRoutes(getProfileSummary, updateProfile)
-                registerNutritionRoutes(
-                    getTodayNutrition,
-                    updateNutritionGoals,
-                    addNutritionEntry,
-                    deleteNutritionEntry
-                )
-                registerProgramRoutes(generateProgram, getActiveProgram, getProgramCalendar, rescheduleWorkout, skipWorkout)
-                registerWorkoutRoutes(
-                    startWorkoutSession,
-                    addWorkoutSets,
-                    finishWorkoutSession,
-                    getWorkoutSessionDetail,
-                    getWorkoutHistory,
-                    deleteWorkoutSession
-                )
-                registerAchievementRoutes(listAchievements, createAchievement, deleteAchievement)
+                rateLimit(RateLimitName("perUser")) {
+                    registerMeRoutes()
+                    registerProfileRoutes(getProfileSummary, updateProfile)
+                    registerNutritionRoutes(
+                        getTodayNutrition,
+                        updateNutritionGoals,
+                        addNutritionEntry,
+                        deleteNutritionEntry
+                    )
+                    registerProgramRoutes(
+                        generateProgram, getActiveProgram, getProgramCalendar, rescheduleWorkout, skipWorkout
+                    )
+                    registerWorkoutRoutes(
+                        startWorkoutSession,
+                        addWorkoutSets,
+                        finishWorkoutSession,
+                        getWorkoutSessionDetail,
+                        getWorkoutHistory,
+                        deleteWorkoutSession
+                    )
+                    registerAchievementRoutes(listAchievements, createAchievement, deleteAchievement)
+                }
             }
         }
     }
@@ -194,7 +268,10 @@ private fun ApplicationCall.authenticate(
 ): FirebaseUserPrincipal {
     if (config.devBypassAuth) {
         val uid = request.headers["X-DEV-UID"]?.takeIf { it.isNotBlank() } ?: "dev-user"
-        return FirebaseUserPrincipal(uid = uid, email = "dev@example.com", name = "Dev")
+        // emailVerified=true here so the dev bypass remains usable end-to-end.
+        return FirebaseUserPrincipal(
+            uid = uid, email = "dev@example.com", name = "Dev", emailVerified = true
+        )
     }
 
     val header = request.headers[HttpHeaders.Authorization]
@@ -205,7 +282,11 @@ private fun ApplicationCall.authenticate(
         throw IllegalArgumentException("Invalid Authorization header (expected: Bearer <token>)")
     }
 
-    return requireNotNull(tokenVerifier).verify(parts[1])
+    val principal = requireNotNull(tokenVerifier).verify(parts[1])
+    if (config.requireEmailVerified && !principal.emailVerified) {
+        throw EmailNotVerifiedException()
+    }
+    return principal
 }
 
 private fun Route.routeAuth(

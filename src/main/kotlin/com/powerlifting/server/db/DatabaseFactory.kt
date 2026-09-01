@@ -11,7 +11,7 @@ import java.sql.DriverManager
 object DatabaseFactory {
     private val log = LoggerFactory.getLogger(DatabaseFactory::class.java)
 
-    fun init(dbConfig: DbConfig) {
+    fun init(dbConfig: DbConfig, appEnv: String = "production") {
         log.info("Initializing database connection to: ${dbConfig.jdbcUrl}")
 
         // Create datasource
@@ -29,13 +29,13 @@ object DatabaseFactory {
 
         // Run migrations with retry logic
         log.info("Running Flyway migrations...")
-        runFlywayMigrations(dbConfig)
+        runFlywayMigrations(dbConfig, appEnv)
 
         Database.connect(dataSource)
         log.info("Database factory initialized successfully")
     }
-    
-    private fun runFlywayMigrations(dbConfig: DbConfig, maxRetries: Int = 5) {
+
+    private fun runFlywayMigrations(dbConfig: DbConfig, appEnv: String, maxRetries: Int = 5) {
         var lastException: Exception? = null
         
         repeat(maxRetries) { attempt ->
@@ -77,8 +77,16 @@ object DatabaseFactory {
         }
         
         log.error("All Flyway migration attempts failed. Last error: ${lastException?.message}")
-        log.error("Continuing without migrations. You may need to run them manually later.")
-        // Не выбрасываем исключение - позволяем серверу запуститься
+        if (appEnv == "production") {
+            // Skipping migrations in prod leaves the schema out of sync with the
+            // running code — every subsequent request gets a 500 with cryptic
+            // SQL errors. Fail fast and let the supervisor restart with backoff.
+            throw IllegalStateException(
+                "Flyway migrations failed in production after $maxRetries attempts; refusing to start.",
+                lastException
+            )
+        }
+        log.error("Continuing without migrations (APP_ENV=$appEnv). You may need to run them manually later.")
     }
 
     private fun hikari(dbConfig: DbConfig): HikariDataSource {
