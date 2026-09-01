@@ -3,6 +3,7 @@ package com.powerlifting.server.data.repository
 import com.powerlifting.server.data.repository.mapper.toProgramExercise
 import com.powerlifting.server.data.repository.mapper.toWorkoutSet
 import com.powerlifting.server.db.dbQuery
+import com.powerlifting.server.domain.error.NotFoundException
 import com.powerlifting.server.db.tables.ProgramExercisesTable
 import com.powerlifting.server.db.tables.ProgramWorkoutsTable
 import com.powerlifting.server.db.tables.WorkoutSessionsTable
@@ -55,7 +56,7 @@ class WorkoutRepositoryImpl : WorkoutRepository {
         WorkoutSessionsTable
             .select { (WorkoutSessionsTable.id eq sessionId) and (WorkoutSessionsTable.userId eq userId) }
             .limit(1)
-            .singleOrNull() ?: error("Session not found")
+            .singleOrNull() ?: throw NotFoundException("Session not found")
 
         WorkoutSetsTable.deleteWhere { WorkoutSetsTable.sessionId eq sessionId }
 
@@ -80,7 +81,7 @@ class WorkoutRepositoryImpl : WorkoutRepository {
         val row = WorkoutSessionsTable
             .select { (WorkoutSessionsTable.id eq sessionId) and (WorkoutSessionsTable.userId eq userId) }
             .limit(1)
-            .singleOrNull() ?: error("Session not found")
+            .singleOrNull() ?: throw NotFoundException("Session not found")
 
         WorkoutSessionsTable.update({ WorkoutSessionsTable.id eq sessionId }) {
             it[finishedAt] = Instant.now()

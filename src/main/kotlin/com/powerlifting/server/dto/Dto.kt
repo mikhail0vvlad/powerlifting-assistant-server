@@ -53,13 +53,28 @@ data class UpdateProfileRequest(
     val bench1rm: Double? = null,
     val squat1rm: Double? = null,
     val deadlift1rm: Double? = null
-)
+) {
+    init {
+        // Range checks are also enforced server-side in UpdateProfileUseCase; the
+        // duplication here gives the same 400 even if the use case is bypassed.
+        heightCm?.let { require(it in 50..250) { "heightCm must be 50..250" } }
+        weightKg?.let { require(it in 20.0..400.0) { "weightKg must be 20..400" } }
+        bench1rm?.let { require(it in 0.0..1000.0) { "bench1rm must be 0..1000" } }
+        squat1rm?.let { require(it in 0.0..1000.0) { "squat1rm must be 0..1000" } }
+        deadlift1rm?.let { require(it in 0.0..1000.0) { "deadlift1rm must be 0..1000" } }
+    }
+}
 
 @Serializable
 data class UpdateNutritionGoalsRequest(
     val caloriesGoal: Int,
     val proteinGoalG: Int
-)
+) {
+    init {
+        require(caloriesGoal in 100..20_000) { "caloriesGoal must be 100..20000" }
+        require(proteinGoalG in 0..2_000) { "proteinGoalG must be 0..2000" }
+    }
+}
 
 @Serializable
 data class NutritionEntryDto(
@@ -77,7 +92,13 @@ data class CreateNutritionEntryRequest(
     val proteinG: Int,
     /** Optional ISO-8601 string. If null, server uses now(). */
     val eatenAtIso: String? = null
-)
+) {
+    init {
+        require(title.length in 1..200) { "title length must be 1..200" }
+        require(calories in 0..10_000) { "calories must be 0..10000" }
+        require(proteinG in 0..2_000) { "proteinG must be 0..2000" }
+    }
+}
 
 @Serializable
 data class NutritionTodayResponse(
@@ -178,7 +199,14 @@ data class StartWorkoutSessionRequest(
     val wellbeing: Int? = null,
     val fatigue: Int? = null,
     val soreness: Int? = null
-)
+) {
+    init {
+        sleepHours?.let { require(it in 0.0..24.0) { "sleepHours must be 0..24" } }
+        wellbeing?.let { require(it in 1..10) { "wellbeing must be 1..10" } }
+        fatigue?.let { require(it in 1..10) { "fatigue must be 1..10" } }
+        soreness?.let { require(it in 1..10) { "soreness must be 1..10" } }
+    }
+}
 
 @Serializable
 data class WorkoutSessionResponse(
@@ -189,7 +217,11 @@ data class WorkoutSessionResponse(
 @Serializable
 data class AddWorkoutSetsRequest(
     val sets: List<WorkoutSetDto>
-)
+) {
+    init {
+        require(sets.size <= 200) { "too many sets in one request" }
+    }
+}
 
 @Serializable
 data class WorkoutSetDto(
@@ -198,7 +230,16 @@ data class WorkoutSetDto(
     val weightKg: Double,
     val reps: Int,
     val rpe: Double? = null
-)
+) {
+    init {
+        require(exerciseName.length in 1..100) { "exerciseName length must be 1..100" }
+        require(setNumber in 1..200) { "setNumber must be 1..200" }
+        // weightKg must fit decimal(6,2) — max 9999.99
+        require(weightKg in 0.0..2_000.0) { "weightKg must be 0..2000" }
+        require(reps in 0..1_000) { "reps must be 0..1000" }
+        rpe?.let { require(it in 0.0..10.0) { "rpe must be 0..10" } }
+    }
+}
 
 @Serializable
 data class FinishWorkoutSessionRequest(
@@ -217,13 +258,29 @@ data class AchievementDto(
 data class CreateAchievementRequest(
     val note: String,
     val photoUrl: String? = null
-)
+) {
+    init {
+        require(note.length in 1..2000) { "note length must be 1..2000" }
+        photoUrl?.let {
+            require(it.length <= 1000) { "photoUrl length must be <= 1000" }
+            // Restrict to https only — rules out javascript:, file:, http:, etc.
+            // The client renders these via Coil, so an http: or javascript: URL
+            // could end up exposed to other surfaces over time.
+            require(it.startsWith("https://")) { "photoUrl must be an https URL" }
+        }
+    }
+}
 
 @Serializable
 data class FinishWorkoutWithRatingRequest(
     val workoutDurationSec: Int,
     val wellbeingRating: Int? = null
-)
+) {
+    init {
+        // 0..86400 = up to 24h. wellbeingRating 1..5 already enforced in use case.
+        require(workoutDurationSec in 0..86_400) { "workoutDurationSec must be 0..86400" }
+    }
+}
 
 @Serializable
 data class WorkoutHistoryItemDto(

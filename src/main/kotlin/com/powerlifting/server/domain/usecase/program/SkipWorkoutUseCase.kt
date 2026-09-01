@@ -1,5 +1,6 @@
 package com.powerlifting.server.domain.usecase.program
 
+import com.powerlifting.server.domain.error.NotFoundException
 import com.powerlifting.server.domain.model.WorkoutStatus
 import com.powerlifting.server.domain.repository.ProgramRepository
 import java.util.UUID
@@ -14,7 +15,7 @@ class SkipWorkoutUseCase(
 ) {
     suspend operator fun invoke(userId: UUID, workoutId: UUID) {
         val (_, source) = programRepository.findWorkoutForUser(userId, workoutId)
-            ?: throw IllegalArgumentException("Workout not found")
+            ?: throw NotFoundException("Workout not found")
         require(WorkoutStatus.parse(source.status) == WorkoutStatus.PLANNED) {
             "Only planned workouts can be skipped"
         }

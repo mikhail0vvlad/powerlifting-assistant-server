@@ -1,5 +1,6 @@
 package com.powerlifting.server.routes
 
+import com.powerlifting.server.domain.error.NotFoundException
 import com.powerlifting.server.domain.usecase.workout.AddWorkoutSetsUseCase
 import com.powerlifting.server.domain.usecase.workout.DeleteWorkoutSessionUseCase
 import com.powerlifting.server.domain.usecase.workout.FinishWorkoutSessionUseCase
@@ -59,7 +60,7 @@ fun Route.registerWorkoutRoutes(
                 val u = call.userRow()
                 val sessionId = sessionIdParam(call.parameters["id"])
                 val detail = getWorkoutSessionDetail(u.id, sessionId)
-                    ?: throw IllegalArgumentException("Session not found")
+                    ?: throw NotFoundException("Session not found")
                 call.respond(detail.toResponse())
             }
 
@@ -73,7 +74,8 @@ fun Route.registerWorkoutRoutes(
 
         get("/history") {
             val u = call.userRow()
-            val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 30
+            val limit = (call.request.queryParameters["limit"]?.toIntOrNull() ?: 30)
+                .coerceIn(1, 100)
             val before = call.request.queryParameters["cursor"]?.let {
                 try {
                     decodeCursor(it)
@@ -88,4 +90,15 @@ fun Route.registerWorkoutRoutes(
 }
 
 private fun sessionIdParam(raw: String?): UUID =
-    UUID.fromString(raw ?: throw IllegalArgumentException("Missing id"))
+    parseUuidOrBadRequest(raw, "session id")
+
+internal fun parseUuidOrBadRequest(raw: String?, label: String): UUID {
+    if (raw.isNullOrBlank()) throw IllegalArgumentException("Missing $label")
+    return try {
+        UUID.fromString(raw)
+    } catch (_: IllegalArgumentException) {
+        // Do NOT echo the raw input back — keeps malformed user input out of
+        // error responses and logs.
+        throw IllegalArgumentException("Invalid $label")
+    }
+}

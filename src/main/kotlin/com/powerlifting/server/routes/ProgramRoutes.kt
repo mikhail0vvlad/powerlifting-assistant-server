@@ -14,6 +14,7 @@ import com.powerlifting.server.routes.mapper.toResponse
 import com.powerlifting.server.userRow
 import io.ktor.http.*
 import io.ktor.server.application.*
+import io.ktor.server.plugins.ratelimit.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
@@ -28,11 +29,13 @@ fun Route.registerProgramRoutes(
     skipWorkout: SkipWorkoutUseCase
 ) {
     route("/programs") {
-        post("/generate") {
-            val u = call.userRow()
-            val req = call.receive<GenerateProgramRequest>()
-            val program = generateProgram(u.id, req.toDomain())
-            call.respond(HttpStatusCode.Created, program.toDto())
+        rateLimit(RateLimitName("expensive")) {
+            post("/generate") {
+                val u = call.userRow()
+                val req = call.receive<GenerateProgramRequest>()
+                val program = generateProgram(u.id, req.toDomain())
+                call.respond(HttpStatusCode.Created, program.toDto())
+            }
         }
 
         get("/active") {
@@ -75,5 +78,4 @@ fun Route.registerProgramRoutes(
     }
 }
 
-private fun workoutIdParam(raw: String?): UUID =
-    UUID.fromString(raw ?: throw IllegalArgumentException("Missing id"))
+private fun workoutIdParam(raw: String?): UUID = parseUuidOrBadRequest(raw, "workout id")

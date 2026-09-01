@@ -22,8 +22,13 @@ fun Route.registerAchievementRoutes(
     route("/achievements") {
         get {
             val u = call.userRow()
-            val offset = call.request.queryParameters["offset"]?.toIntOrNull() ?: 0
-            val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 50
+            // Cap both to prevent slow OFFSET scans and huge response payloads.
+            // TODO(perf): migrate to keyset cursor on `created_at DESC` like
+            // /workouts/history once the Android client paginates.
+            val offset = (call.request.queryParameters["offset"]?.toIntOrNull() ?: 0)
+                .coerceIn(0, 10_000)
+            val limit = (call.request.queryParameters["limit"]?.toIntOrNull() ?: 50)
+                .coerceIn(1, 100)
             val list = listAchievements(u.id, offset, limit)
             call.respond(list.map { it.toDto() })
         }
@@ -37,8 +42,7 @@ fun Route.registerAchievementRoutes(
 
         delete("/{id}") {
             val u = call.userRow()
-            val idStr = call.parameters["id"] ?: throw IllegalArgumentException("Missing id")
-            val id = UUID.fromString(idStr)
+            val id = parseUuidOrBadRequest(call.parameters["id"], "achievement id")
             val ok = deleteAchievement(u.id, id)
             if (ok) call.respond(HttpStatusCode.NoContent) else call.respond(HttpStatusCode.NotFound)
         }
